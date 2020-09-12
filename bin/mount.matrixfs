@@ -47,21 +47,21 @@ def parse_device(device)
 end
 
 MatrixFS_OPTIONS = %i[v vv debug no_listen hs hs_domain access_token tokenfile user pass passfile]
-MatrixFS_USAGE = <<~USAGE
-        -o v                             Enables logging of MatrixFS actions
-        -o vv                            Enables verbose logging of MatrixFS actions
-        -o debug                         Enables logging of MatrixSDK communication
-        -o no_listen                     Don't listen to changes
-        -o hs=https://matrix.example.com The homeserver URL to communicate with
-        -o hs_domain=example.com         The homeserver domain to communicate with
-        -o access_token=TOKEN            An access token to use, to skip needing to log in
-        -o tokenfile=/PATH/TO/TOKEN      An access token to use, to skip needing to log in
-        -o user=USERNAME                 The username to log in with
-        -o pass=PASSWORD                 The password to log in with
-        -o passfile=/PATH/TO/PASS        The file to read the password from
+MatrixFS_USAGE = <<-USAGE
+    -o v                             Enables logging of MatrixFS actions
+    -o vv                            Enables verbose logging of MatrixFS actions
+    -o debug                         Enables logging of MatrixSDK communication
+    -o no_listen                     Don't listen to changes
+    -o hs=https://matrix.example.com The homeserver URL to communicate with
+    -o hs_domain=example.com         The homeserver domain to communicate with
+    -o access_token=TOKEN            An access token to use, to skip needing to log in
+    -o tokenfile=/PATH/TO/TOKEN      An access token to use, to skip needing to log in
+    -o user=USERNAME                 The username to log in with
+    -o pass=PASSWORD                 The password to log in with
+    -o passfile=/PATH/TO/PASS        The file to read the password from
     USAGE
 
-FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE) do |opts|
+FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE, '!roomid:example.com') do |opts|
     MatrixFS.info! if opts[:v]
     MatrixFS.debug! if opts[:vv]
     MatrixSdk.debug! if opts[:debug]
