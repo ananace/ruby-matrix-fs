@@ -185,7 +185,7 @@ module MatrixFS
       if data.encoding != Encoding::UTF_8
         begin
           data = data.encode(Encoding::UTF_8)
-        rescue
+        rescue Encoding::UndefinedConversionError
           data = Base64.strict_encode64 data
           encoding = 'base64'
         end
