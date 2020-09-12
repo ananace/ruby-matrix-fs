@@ -89,7 +89,7 @@ FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE, '!roomid:example.com') do |o
     client.sync_filter = MatrixFS::BOT_FILTER
     client.sync_filter[:room][:rooms] = [room.to_s]
 
-    MatrixFS.logger.info "Mounting #{room} to #{opts[:mountpoint]} as #{client.mxid}"
+    MatrixFS.logger.info "MatrixFS v#{MatrixFS::VERSION} is mounting #{room} to #{opts[:mountpoint]} as #{client.mxid}"
 
     MatrixFS.new client: client, room_id: room, listen: !opts[:no_listen]
 end
