@@ -1,0 +1,95 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'matrix_sdk'
+require 'matrix_fs'
+require 'fusefs'
+
+# Usage: mount.matrixfs <room> <path> [-o options]
+# 
+# Options:
+#   debug - Enables Matrix protocol debugging
+#   verbose - Enables verbose output
+#   no_listen - Disables sync
+#
+#   hs = homeserver URL
+#   access_token = Active access token
+#   user = MXID for user
+#   pass = password for user
+#   passfile = password file for user
+
+# mount.matrixfs !someroom:example.com /mnt/test -o hs=https://matrix.com,access_token=blah
+# mount.matrixfs #somealias:example.com /mnt/test -o hs=https://matrix.com,access_token=blah
+# mount.matrixfs https://matrix.to/#/!oxWCSVQfFXEWAfzrpi:kittenface.studio?via=kittenface.studio /mnt/test -o user=@ace:kittenface.studio,pass=potatismos
+# mount.matrixfs matrix:roomid/someroom:example.com /mnt/test
+# mount.matrixfs matrix:room/somealias:example.com /mnt/test
+# mount.matrixfs matrix://room/somealias:example.com /mnt/test
+
+def parse_device(device)
+    if device =~ %r{^matrix:(//)?}
+        require 'uri'
+
+        u = URI(device)
+        str = u.opaque || "#{u.host}#{u.path}"
+        type, data = str.split('?')[0].split('/')
+
+        if type == 'roomid'
+            "!#{data}"
+        elsif type == 'room'
+            "##{data}"
+        end
+    elsif device =~ %r{^https?://matrix.to/#}
+        u = URI(device)
+        u.split('?')[0].split('/')[1]
+    else
+        device
+    end
+end
+
+MatrixFS_OPTIONS = %i[v vv debug no_listen hs hs_domain access_token tokenfile user pass passfile]
+MatrixFS_USAGE = <<~USAGE
+        -o v                             Enables logging of MatrixFS actions
+        -o vv                            Enables verbose logging of MatrixFS actions
+        -o debug                         Enables logging of MatrixSDK communication
+        -o no_listen                     Don't listen to changes
+        -o hs=https://matrix.example.com The homeserver URL to communicate with
+        -o hs_domain=example.com         The homeserver domain to communicate with
+        -o access_token=TOKEN            An access token to use, to skip needing to log in
+        -o tokenfile=/PATH/TO/TOKEN      An access token to use, to skip needing to log in
+        -o user=USERNAME                 The username to log in with
+        -o pass=PASSWORD                 The password to log in with
+        -o passfile=/PATH/TO/PASS        The file to read the password from
+    USAGE
+
+FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE) do |opts|
+    MatrixFS.info! if opts[:v]
+    MatrixFS.debug! if opts[:vv]
+    MatrixSdk.debug! if opts[:debug]
+
+    room = MatrixSdk::MXID.new(parse_device(opts[:device]))
+    raise 'Invalid source' unless room.room?
+
+    params = {
+        client_cache: :none
+    }
+
+    client = MatrixSdk::Client.new opts[:hs], **params if opts[:hs]
+    client ||= MatrixSdk::Client.new_for_domain opts[:hs_domain], **params if opts[:hs_domain]
+    client ||= MatrixSdk::Client.new_for_domain MatrixSdk::MXID.new(opts[:user]).homeserver, **params if opts[:user]
+    raise 'Unable to create a Matrix client from mount options' unless client
+
+    client.access_token = opts[:access_token] if opts[:access_token]
+    client.access_token = File.read(opts[:tokenfile]).strip if opts[:tokenfile]
+    client.login opts[:user], opts[:pass], no_sync: true if opts[:user] && opts[:pass]
+    client.login opts[:user], File.read(opts[:passfile]).strip, no_sync: true if opts[:user] && opts[:passfile]
+    raise 'Unable to authenticate Matrix client from mount options' unless client.access_token
+
+    room = MatrixSdk::MXID.new(client.api.get_room_id(room).room_id) if room.room_alias?
+
+    client.sync_filter = MatrixFS::BOT_FILTER
+    client.sync_filter[:room][:rooms] = [room.to_s]
+
+    MatrixFS.logger.info "Mounting #{room} to #{opts[:mountpoint]} as #{client.mxid}"
+
+    MatrixFS.new client: client, room_id: room, listen: !opts[:no_listen]
+end
