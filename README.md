@@ -27,6 +27,12 @@ Filesystem options:
 -o passfile=/PATH/TO/PASS        The file to read the password from
 ```
 
+## TODO?
+
+- Stop storing the entire content of all objects in memory
+- Handle multiple rooms
+- Access arbitrary state?
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/ananace/ruby-matrix-fs
