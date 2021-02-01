@@ -82,7 +82,7 @@ module MatrixFS
     end
 
     def global_xattrs
-      %w[matrixfs.eventid matrixfs.sender]
+      %w[matrixfs.eventid matrixfs.sender matrixfs.fragmented]
     end
 
     def global_xattr(key)
@@ -91,6 +91,8 @@ module MatrixFS
         @event&.event_id
       when 'matrixfs.sender'
         @event&.sender
+      when 'matrixfs.fragmented'
+        is_a? FileFragmentEntry
       end
     end
 
