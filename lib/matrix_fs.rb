@@ -10,6 +10,13 @@ require 'logging'
 module MatrixFS
   STATE_TYPE = 'dev.ananace.matrixfs'
   BOT_FILTER = {
+      event_fields: %w[
+        type
+        sender
+        content
+        state_key
+        origin_server_ts
+      ],
       presence: { types: [] },
       account_data: { types: [] },
       room: {
