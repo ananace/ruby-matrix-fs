@@ -74,6 +74,11 @@ module MatrixFS
       0
     end
 
+    def xattr_wrapper
+      @xattr_wrapper
+      @atime = Time.now
+    end
+
     def to_h
       {
         type: type,
