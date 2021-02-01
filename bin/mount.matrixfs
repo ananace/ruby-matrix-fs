@@ -17,6 +17,7 @@ require 'fusefs'
 #   user = MXID for user
 #   pass = password for user
 #   passfile = password file for user
+#   gc = duration to keep data in memory since last access
 
 # mount.matrixfs !someroom:example.com /mnt/test -o hs=https://matrix.com,access_token=blah
 # mount.matrixfs #somealias:example.com /mnt/test -o hs=https://matrix.com,access_token=blah
@@ -46,7 +47,7 @@ def parse_device(device)
     end
 end
 
-MatrixFS_OPTIONS = %i[v vv debug no_listen hs hs_domain access_token tokenfile user pass passfile]
+MatrixFS_OPTIONS = %i[v vv debug no_listen hs hs_domain access_token tokenfile user pass passfile gc]
 MatrixFS_USAGE = <<-USAGE
     -o v                             Enables logging of MatrixFS actions
     -o vv                            Enables verbose logging of MatrixFS actions
@@ -59,6 +60,7 @@ MatrixFS_USAGE = <<-USAGE
     -o user=USERNAME                 The username to log in with
     -o pass=PASSWORD                 The password to log in with
     -o passfile=/PATH/TO/PASS        The file to read the password from
+    -o gc=SECONDS                    Duration to keep file data in memory since last access (default 3600 / 1 hour, use -1 to disable)
     USAGE
 
 FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE, '!roomid:example.com') do |opts|
@@ -91,5 +93,6 @@ FuseFS.main(ARGV, MatrixFS_OPTIONS, MatrixFS_USAGE, '!roomid:example.com') do |o
 
     MatrixFS.logger.info "MatrixFS v#{MatrixFS::VERSION} (SDK v#{MatrixSdk::VERSION}) is mounting #{room} to #{opts[:mountpoint]} as #{client.mxid}"
 
-    MatrixFS.new client: client, room_id: room, listen: !opts[:no_listen]
+    fs = MatrixFS.new client: client, room_id: room, listen: !opts[:no_listen], gc: opts[:gc]&.to_f || 3600
+    fs
 end

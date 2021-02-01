@@ -7,62 +7,24 @@ module MatrixFS
     MAX_FRAG_SIZE = 56 * 1024 # 56kb to stay inside the 64k max event size
     XATTR_SAVE_DELAY = 1 # Save changes one second after the last xattr change
 
-    attr_accessor :modes
+    attr_accessor :modes, :atime
     attr_reader :fs, :path, :timestamp, :xattr, :xattr_wrapper
 
-    def initialize(fs, event:, path:, timestamp:, xattr: nil)
+    def initialize(fs, event:, path:, timestamp:, atime: nil, xattr: nil)
       @fs = fs
-      @event = event
+      @event = event.dup
+      @event.delete :content
       @path = path
       @timestamp = timestamp
+      @atime = atime || Time.now
 
       @xattr = xattr || {}
-      @xattr_wrapper = Object.new
-      @xattr_wrapper.instance_variable_set :@main_entry, self
-      @xattr_wrapper.instance_variable_set :@xattr, @xattr
-
-      @xattr_wrapper.instance_eval do
-        def start_save_timer
-          stop_save_timer
-          @save_timer = Thread.new { sleep XATTR_SAVE_DELAY; @main_entry.save!(true) }
-        end
-
-        def stop_save_timer
-          @save_timer&.exit
-          @save_timer = nil
-        end
-
-        def [](key)
-          return @main_entry.global_xattr(key) if key.start_with? 'matrixfs.'
-
-          @xattr[key]
-        end
-
-        def []=(key, data)
-          return if key.start_with? 'matrixfs.'
-
-          start_save_timer
-          @xattr[key] = data
-        end
-
-        def keys
-          @xattr.keys + @main_entry.global_xattrs
-        end
-
-        def delete(key)
-          return if key.start_with? 'matrixfs.'
-
-          start_save_timer
-          @xattr.delete(key)
-        end
-
-        def inspect; @xattr.inspect end
-        def to_s; @xattr.to_s end
-      end
+      @xattr_wrapper = XattrWrapper.new entry: self, xattr: @xattr
     end
 
     def save!(from_xattr = false)
       Logging.logger[self].debug "Saving changes to entry #{path}"
+      @timestamp = Time.now
       @xattr_wrapper.stop_save_timer unless from_xattr
       fs.room.client.api.send_state_event fs.room.id, MatrixFS::STATE_TYPE, to_h, state_key: path
     end
@@ -73,8 +35,44 @@ module MatrixFS
       fs.room.client.api.send_state_event fs.room.id, MatrixFS::STATE_TYPE, {}, state_key: path
     end
 
+    def reload!
+      Logging.logger[self].debug "Reloading entry #{path}"
+
+      data = fs.room.client.api.get_room_state fs.room.id, MatrixFS::STATE_TYPE, key: path
+
+      raise NotImplementedError, "Can't change type of #{path} from #{type} to #{data.type}" if data.key?(:type) && data.type != type
+
+      @clean = false
+
+      yield data if block_given?
+      return self if is_a? FileFragmentEntry
+
+      @type = data[:type] if data.key? :type
+      return self unless data.key? :xattr
+
+      @xattr.merge!(data[:xattr] || {})
+      @xattr_wrapper.stop_save_timer
+
+      self
+    end
+
+    def clear!
+      return unless @event
+
+      @event.delete :content
+    ensure
+      @clean = true
+    end
+
+    def clean?
+      @clean
+    end
+
     def type; end
-    def size; 0 end
+
+    def size
+      0
+    end
 
     def to_h
       {
@@ -86,7 +84,7 @@ module MatrixFS
     def global_xattrs
       %w[matrixfs.eventid matrixfs.sender]
     end
-    
+
     def global_xattr(key)
       case key
       when 'matrixfs.eventid'
@@ -99,9 +97,10 @@ module MatrixFS
     def self.new_from_data(fs, type:, **data)
       raise 'Needs a path' unless data.key? :path
 
-      data[:event] = nil
-
+      data[:event] ||= nil
       data[:timestamp] ||= Time.now
+      data.delete :ctime
+
       if type == 'd'
         MatrixFS::DirEntry.new fs, **data
       elsif type == 'f'
@@ -114,26 +113,17 @@ module MatrixFS
     end
 
     def self.new_from_event(fs, state_event)
-      raise 'Dangerous data in state event content' unless (state_event.content.keys & %i[path timestamp]).empty?
+      raise 'Dangerous data in state event content' unless (state_event[:content].keys & %i[path timestamp]).empty?
 
       data = {
         event: state_event,
-        path: state_event.state_key,
-        timestamp: Time.at(state_event.origin_server_ts / 1000.0),
-      }.merge(state_event.content)
+        path: state_event[:state_key],
+        timestamp: Time.at(state_event[:origin_server_ts] / 1000.0)
+      }.merge(state_event[:content])
 
-      data.delete :ctime
       type = data.delete :type
 
-      if type == 'd'
-        MatrixFS::DirEntry.new fs, **data
-      elsif type == 'f'
-        MatrixFS::FileEntry.new fs, **data
-      elsif type == 'F'
-        MatrixFS::FileFragmentEntry.new fs, **data
-      else
-        Logging.logger[self].error "Tried to create unknown type of entry (#{data}, type #{type.inspect})"
-      end
+      new_from_data(fs, type: type, **data)
     end
   end
 
@@ -151,20 +141,45 @@ module MatrixFS
 
         @size = size
         @fragments = fragments
-        @fragmented = fragmented
+        @fragmented = true
       else
         raise 'ArgumentError (missing keyword: data)' unless data
 
         @data = data
+        @size = @data.bytesize
       end
+    end
+
+    def reload!
+      super do |data|
+        @encoding = data[:encoding] if data.key? :encoding
+        @executable = data[:executable] if data.key? :executable
+        if data[:fragmented]
+          @size = data[:size]
+          @fragments = data[:fragments]
+          @fragmented = true
+        else
+          @data = data[:data]
+          @size = @data&.bytesize || 0
+        end
+      end
+    end
+
+    def clear!
+      super
+      @data = nil
     end
 
     def type
       'f'
     end
 
+    def fragmented?
+      @fragmented
+    end
+
     def size
-      @size || @data.bytesize
+      @size || @data&.bytesize
     end
 
     def data
@@ -175,8 +190,11 @@ module MatrixFS
         end
         data
       else
+        reload! if @data.nil?
         @data
       end
+    ensure
+      @atime = Time.now
     end
 
     def data=(data)
@@ -210,12 +228,15 @@ module MatrixFS
         @old_fragments = [@fragments || 0, @old_fragments || 0].max
         @fragmented = nil
         @fragments = nil
-        @size = nil
+        @size = @data.bytesize
       end
+    ensure
+      @clean = false
+      @timestamp = Time.now
     end
 
     def save!(*arg)
-      super *arg
+      super(*arg)
       return unless @fragmented
 
       if (@old_fragments || 0) > @fragments
@@ -227,18 +248,14 @@ module MatrixFS
         end
       end
 
-      each_fragment do |entry|
-        entry.save!
-      end
+      each_fragment(&:save!)
     end
 
     def delete!
       super
       return unless @fragmented
 
-      each_fragment do |entry|
-        entry.delete!
-      end
+      each_fragment(&:delete!)
     end
 
     def to_h
@@ -256,17 +273,27 @@ module MatrixFS
       h
     end
 
-    private
-
     def each_fragment(method = :get, **params)
+      raise 'Not fragmented' unless @fragmented
+
       return to_enum(:each_fragment, method, **params) unless block_given?
 
       @fragments.times do |fragment|
         fragment_path = @path + "/.fragments/#{fragment}"
-        entry = @fs.send :get_entry, fragment_path if method == :get
-        entry = @fs.send :ensure_entry, fragment_path, **params if method == :ensure
+        entry = nil
+        if method == :head
+          entry = @fs.send :get_entry, fragment_path
+        elsif method == :get
+          entry = @fs.send :get_entry, fragment_path
+          unless entry.data
+            entry.reload!
+            @clean = false
+          end
+        elsif method == :ensure
+          entry = @fs.send :ensure_entry, fragment_path, **params
+        end
 
-        yield entry
+        yield entry if entry
       end
     end
   end
@@ -278,6 +305,18 @@ module MatrixFS
       super room, **params
 
       @data = data
+    end
+
+    def clear!
+      super
+
+      @data = nil
+    end
+
+    def reload!
+      super do |data|
+        @data = data.data
+      end
     end
 
     def type
@@ -293,6 +332,12 @@ module MatrixFS
   end
 
   class DirEntry < Entry
+    def initialize(*params)
+      super
+
+      @clean = true
+    end
+
     def type
       'd'
     end

@@ -4,6 +4,7 @@ require 'matrix_sdk'
 require 'matrix_fs/entries'
 require 'matrix_fs/fuse_dir'
 require 'matrix_fs/version'
+require 'matrix_fs/xattr_wrapper'
 require 'logging'
 
 module MatrixFS
@@ -13,10 +14,7 @@ module MatrixFS
       account_data: { types: [] },
       room: {
           ephemeral: { types: [] },
-          state: {
-              types: ['m.room.power_levels', MatrixFS::STATE_TYPE],
-              lazy_load_members: true
-          },
+          state: { types: [] },
           timeline: {
               types: ['m.room.power_levels', MatrixFS::STATE_TYPE]
           },
@@ -25,8 +23,10 @@ module MatrixFS
   }
 
 
-  def self.new(client:, room_id:, listen: true)
+  def self.new(client:, room_id:, listen: true, gc: nil)
     fs = MatrixFS::FuseDir.new client.ensure_room(room_id)
+    fs.gc_timer = gc if gc
+
     client.start_listener_thread if listen
 
     fs

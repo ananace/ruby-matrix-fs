@@ -23,6 +23,17 @@ module MatrixFS
       logger.info "Startup finished, finalizing mount.#{rand(10) == 0 ? ' Have a pleasant day.' : nil}"
     end
 
+    def gc_timer=(delay)
+      raise ArgumentError, 'delay must be a Numeric' unless delay.is_a? Numeric
+
+      if delay >= 0
+        @gc_timer ||= Thread.new { run_gc(delay) }
+      else
+        @gc_timer&.exit
+        @gc_timer = nil
+      end
+    end
+
     def directory?(path)
       return result = false unless path_valid?(path)
       return result = true if path == '/'
@@ -43,11 +54,12 @@ module MatrixFS
     def contents(path)
       return result = [] unless directory? path
 
-      result = @state.select do |p, f|
+      contents = @state.select do |p, f|
         f.type != 'F' && p != path && File.dirname(p) == path
-      end.map { |_, f| f.path.delete_prefix(path).delete_prefix('/') }.sort
+      end
+      results = contents.map { |_, f| f.path.delete_prefix(path).delete_prefix('/') }.sort
     ensure
-      logger.debug "#{path} dirents => #{result}"
+      logger.debug "#{path} dirents => #{results}"
     end
 
     def executable?(path)
@@ -56,6 +68,7 @@ module MatrixFS
       entry = get_entry(path)
       return result = true if entry&.class == MatrixFS::DirEntry
       return result = true if entry&.class == MatrixFS::FileEntry && entry&.executable
+
       result = false
     ensure
       logger.debug "#{path} executable? #{result}"
@@ -71,7 +84,11 @@ module MatrixFS
       return result = [Time.now, Time.now, Time.now] if path == '/'
 
       entry = get_entry(path)
-      result = [ entry&.timestamp || 0, entry&.timestamp || 0, entry&.timestamp || 0 ]
+      result = [
+        entry&.atime || 0,     # atime
+        entry&.timestamp || 0, # mtime
+        entry&.timestamp || 0  # ctime
+      ]
     ensure
       logger.debug "#{path} times => #{result}"
     end
@@ -79,13 +96,14 @@ module MatrixFS
     def read_file(path)
       result = get_entry(path)&.data
     ensure
-      logger.debug "#{path} read #{result.bytesize}b"
+      logger.debug "#{path} read #{(result || '').bytesize}b"
     end
 
     def can_write?(path)
       return result = false unless @can_write
       return result = false unless path_valid?(path)
       return result = false if get_entry(path)&.class == MatrixFS::DirEntry
+
       result = true
     ensure
       logger.debug "#{path} writable? #{result}"
@@ -105,6 +123,7 @@ module MatrixFS
       return result = false unless @can_write
       return result = false unless path_valid?(path)
       return result = false unless has_entry?(path)
+
       result = true
     ensure
       logger.debug "#{path} deletable? #{result}"
@@ -120,6 +139,7 @@ module MatrixFS
       return result = false unless @can_write
       return result = false unless path_valid?(path)
       return result = false if has_entry?(path)
+
       result = true
     ensure
       logger.debug "#{path} mkdir? #{result}"
@@ -135,6 +155,7 @@ module MatrixFS
       return result = false unless @can_write
       return result = false unless path_valid?(path)
       return result = false unless get_entry(path)&.class == MatrixFS::DirEntry
+
       result = true
     ensure
       logger.debug "#{path} rmdir? #{result}"
@@ -180,12 +201,17 @@ module MatrixFS
     def get_entry(path)
       logger.debug "Getting entry #{path}"
       return nil unless has_entry?(path)
+
       @state[path]
     end
 
     def get_initial_data
       logger.debug 'Getting initial sync data'
-      room.client.sync
+      tmpfilter = room.client.sync_filter.dup
+      tmpfilter[:room][:state][:types] = tmpfilter.dig(:room, :timeline, :types)
+      tmpfilter[:room][:timeline][:types] = []
+
+      room.client.sync filter: tmpfilter
 
       if @can_write.nil?
         logger.debug 'No PL in initial sync, using side-request'
@@ -214,14 +240,40 @@ module MatrixFS
         logger.info "Received delete for #{event.state_key}"
         @state.delete event.state_key
       else
-        cur = @state[event.state_key] 
+        cur = @state[event.state_key]
         if !cur.nil? && cur.timestamp >= Time.at(event.origin_server_ts / 1000.0)
           logger.debug "Received older data for #{event.state_key}, ignoring"
           return
         end
 
         logger.info "Received updated data for #{event.state_key}"
-        @state[event.state_key] = MatrixFS::Entry.new_from_event(self, event)
+        @state[event.state_key] = MatrixFS::Entry.new_from_event(self, event.event)
+      end
+    end
+
+    def run_gc(timeout)
+      return if timeout < 0
+
+      loop do
+        dirty = false
+        @state.each do |_path, entry|
+          next unless entry.is_a? FileEntry
+          next if entry.clean?
+          next unless Time.now - entry.atime > timeout
+          next unless Time.now - entry.timestamp > timeout
+
+          dirty = true
+          logger.debug "Cleaning #{entry.path} due to last access more than #{timeout}s ago"
+
+          entry.clear!
+          next unless entry.fragmented?
+
+          entry.each_fragment(:head, &:clear!)
+        end
+
+        GC.start if dirty
+
+        sleep 30
       end
     end
   end
