@@ -33,8 +33,11 @@ module MatrixFS
   def self.new(client:, room_id:, listen: true, gc: nil)
     fs = MatrixFS::FuseDir.new client.ensure_room(room_id)
     fs.gc_timer = gc if gc
-
-    client.start_listener_thread if listen
+    
+    if listen
+      filter = client.api.create_filter client.mxid, client.sync_filter
+      client.start_listener_thread filter: filter.filter_id
+    end
 
     fs
   end
