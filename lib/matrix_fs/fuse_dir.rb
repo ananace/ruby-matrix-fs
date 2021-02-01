@@ -220,13 +220,11 @@ module MatrixFS
     end
 
     def check_permissions(event = nil)
-      return if !event.nil?
-
-      logger.info "Received updated power levels, refreshing write status."
+      logger.info 'Received updated power levels, refreshing write status.'
       event ||= { content: room.client.api.get_room_power_levels(room.id) }
 
-      current_pl = event.dig(:content, :users, room.client.mxid.to_s.to_sym) || event.dig(:content, :users_default) || 0
-      needed_pl = event.dig(:content, :events, MatrixFS::STATE_TYPE.to_sym) || event.dig(:content, :state_default) || 50
+      current_pl = event[:content].dig(:users, room.client.mxid.to_s.to_sym) || event[:content][:users_default] || 0
+      needed_pl = event[:content].dig(:events, MatrixFS::STATE_TYPE.to_sym) || event[:content][:state_default] || 50
 
       logger.debug "User #{room.client.mxid} has PL #{current_pl}, can_write? #{current_pl > needed_pl}"
 
