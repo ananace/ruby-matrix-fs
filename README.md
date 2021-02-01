@@ -1,6 +1,6 @@
 # MatrixFS
 
-A stupid little FUSE filesystem that stores data as Matrix state objects, giving you a relatively low-cost distributed filesystem - albeit slow as molasses.
+A small FUSE filesystem that stores data as Matrix state objects, giving you a relatively low-cost distributed filesystem - albeit much slower than any proper filesystem.
 
 ## Usage
 
@@ -25,18 +25,25 @@ Filesystem options:
     -o user=USERNAME                 The username to log in with
     -o pass=PASSWORD                 The password to log in with
     -o passfile=/PATH/TO/PASS        The file to read the password from
+    -o gc=SECONDS                    Duration to keep file data in memory since last access (default 3600 / 1 hour, use -1 to disable)
 ```
+
+### Limitations
+
+Due to how Matrix stores state (in 64kB JSON objects) larger files and data that can't be UTF-8 encoded will be fragmented and stored as base64 strings, which will cause a larger memory footprint when accessing them.
+
+There's only limited handling of umasks; the three octets will always be identical, read will always be set, write will be set depending on the power levels of the mounting user, execute can only be set through a separate Matrix client.
 
 ## TODO?
 
-- Stop storing the entire content of all objects in memory
+- Sync existence and content separately?
 - Handle multiple rooms
 - Access arbitrary state?
+- Support chmod for setting execute bit
 
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/ananace/ruby-matrix-fs
-
 
 ## License
 
