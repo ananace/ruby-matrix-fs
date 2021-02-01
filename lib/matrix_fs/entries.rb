@@ -141,7 +141,7 @@ module MatrixFS
         raise 'ArgumentError (missing keyword: size)' unless size
         raise 'ArgumentError (missing keyword: fragments)' unless fragments
 
-        @data = ''
+        @data = ''.dup
         @size = size
         @fragments = fragments
         @fragmented = true
