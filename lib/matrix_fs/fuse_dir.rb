@@ -13,12 +13,11 @@ module MatrixFS
 
       @room = room
       @state = {}
-      room.client.on_event.add_handler(MatrixFS::STATE_TYPE, 'entries') { |event| state_change(event) }
-      room.client.on_event.add_handler('m.room.power_levels', 'powerlevels') { |event| check_permissions(event) }
+      room.on_state_event.add_handler(MatrixFS::STATE_TYPE, 'entries') { |event| state_change(event) }
+      room.on_state_event.add_handler('m.room.power_levels', 'powerlevels') { |event| check_permissions(event) }
 
       logger.info 'Getting initial state, please wait...'
 
-      check_permissions
       get_initial_data
 
       logger.info "Startup finished, finalizing mount.#{rand(10) == 0 ? ' Have a pleasant day.' : nil}"
@@ -185,20 +184,19 @@ module MatrixFS
     end
 
     def get_initial_data
-      filter = Marshal.load(Marshal.dump(MatrixFS::BOT_FILTER))
-      filter[:room].map { |_k, v| v[:types] = [] if v.is_a? Hash }
+      logger.debug 'Getting initial sync data'
+      room.client.sync
 
-      logger.debug 'Getting initial sync token'
-      room.client.sync filter: filter
-
-      logger.debug 'Getting initial room state'
-      data = room.client.api.get_room_state_all(room.id)
-      data.select { |event| event[:type] == MatrixFS::STATE_TYPE }.each { |event| state_change(event) }
+      if @can_write.nil?
+        logger.debug 'No PL in initial sync, using side-request'
+        check_permissions
+      end
     end
 
     def check_permissions(event = nil)
-      return if !event.nil? && event.room_id != room.id
+      return if !event.nil?
 
+      logger.info "Received updated power levels, refreshing write status."
       event ||= { content: room.client.api.get_room_power_levels(room.id) }
 
       current_pl = event.dig(:content, :users, room.client.mxid.to_s.to_sym) || event.dig(:content, :users_default) || 0
@@ -210,13 +208,16 @@ module MatrixFS
     end
 
     def state_change(event)
-      logger.debug event
-      return unless event.type == MatrixFS::STATE_TYPE && event.room_id == room.id
-      logger.info "Received updated data for #{event.state_key}"
+      return unless event.type == MatrixFS::STATE_TYPE
 
       if event.content.empty?
+        logger.info "Received delete for #{event.state_key}"
         @state.delete event.state_key
       else
+        cur = @state[event.state_key] 
+        return if !cur.nil? && cur.timestamp >= event.timestamp
+
+        logger.info "Received updated data for #{event.state_key}"
         @state[event.state_key] = MatrixFS::Entry.new_from_event(self, event)
       end
     end
