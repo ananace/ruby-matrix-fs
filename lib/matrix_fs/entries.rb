@@ -99,7 +99,7 @@ module MatrixFS
     def self.new_from_data(fs, type:, **data)
       raise 'Needs a path' unless data.key? :path
 
-      data[:event] ||= nil
+      data[:event] ||= {}
       data[:timestamp] ||= Time.now
       data.delete :ctime
 
