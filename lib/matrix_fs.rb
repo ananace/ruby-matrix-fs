@@ -12,6 +12,7 @@ module MatrixFS
   BOT_FILTER = {
       event_fields: %w[
         type
+        event_id
         sender
         content
         state_key
