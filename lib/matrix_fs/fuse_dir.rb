@@ -84,6 +84,7 @@ module MatrixFS
       return result = [Time.now, Time.now, Time.now] if path == '/'
 
       entry = get_entry(path)
+      entry.atime = Time.now if entry
       result = [
         entry&.atime || 0,     # atime
         entry&.timestamp || 0, # mtime
@@ -176,7 +177,7 @@ module MatrixFS
     end
 
     def xattr(path)
-      return result = {} unless @can_write
+      return result = {} if path == '/'
 
       result = get_entry(path)&.xattr_wrapper || {}
     ensure
