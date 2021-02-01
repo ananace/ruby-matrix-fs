@@ -7,8 +7,8 @@ module MatrixFS
     MAX_FRAG_SIZE = 56 * 1024 # 56kb to stay inside the 64k max event size
     XATTR_SAVE_DELAY = 1 # Save changes one second after the last xattr change
 
-    attr_accessor :modes, :atime
-    attr_reader :fs, :path, :timestamp, :xattr, :xattr_wrapper
+    attr_accessor :modes, :timestamp, :atime
+    attr_reader :fs, :path, :xattr, :xattr_wrapper
 
     def initialize(fs, event:, path:, timestamp:, atime: nil, xattr: nil)
       @fs = fs
@@ -35,12 +35,12 @@ module MatrixFS
       fs.room.client.api.send_state_event fs.room.id, MatrixFS::STATE_TYPE, {}, state_key: path
     end
 
-    def reload!
+    def reload!(data = nil)
       Logging.logger[self].debug "Reloading entry #{path}"
 
-      data = fs.room.client.api.get_room_state fs.room.id, MatrixFS::STATE_TYPE, key: path
+      data ||= fs.room.client.api.get_room_state fs.room.id, MatrixFS::STATE_TYPE, key: path
 
-      raise NotImplementedError, "Can't change type of #{path} from #{type} to #{data.type}" if data.key?(:type) && data.type != type
+      raise NotImplementedError, "Can't change type of #{path} from #{type} to #{data[:type]}" if data.key?(:type) && data[:type] != type
 
       @clean = false
 
@@ -139,6 +139,7 @@ module MatrixFS
         raise 'ArgumentError (missing keyword: size)' unless size
         raise 'ArgumentError (missing keyword: fragments)' unless fragments
 
+        @data = ''
         @size = size
         @fragments = fragments
         @fragmented = true
@@ -150,7 +151,7 @@ module MatrixFS
       end
     end
 
-    def reload!
+    def reload!(inp = nil)
       super do |data|
         @encoding = data[:encoding] if data.key? :encoding
         @executable = data[:executable] if data.key? :executable
@@ -159,7 +160,7 @@ module MatrixFS
           @fragments = data[:fragments]
           @fragmented = true
         else
-          @data = data[:data]
+          @data.replace data[:data]
           @size = @data&.bytesize || 0
         end
       end
@@ -167,7 +168,7 @@ module MatrixFS
 
     def clear!
       super
-      @data = nil
+      @data.replace ''
     end
 
     def type
@@ -188,9 +189,9 @@ module MatrixFS
         if @encoding == 'base64'
           data = Base64.strict_decode64 data
         end
-        data
+        @data.replace data
       else
-        reload! if @data.nil?
+        reload! if clean?
         @data
       end
     ensure
@@ -224,7 +225,7 @@ module MatrixFS
           entry.data = chunk
         end
       else
-        @data = data
+        @data.replace data
         @old_fragments = [@fragments || 0, @old_fragments || 0].max
         @fragmented = nil
         @fragments = nil
@@ -285,7 +286,7 @@ module MatrixFS
           entry = @fs.send :get_entry, fragment_path
         elsif method == :get
           entry = @fs.send :get_entry, fragment_path
-          unless entry.data
+          if entry.clean?
             entry.reload!
             @clean = false
           end
@@ -310,12 +311,12 @@ module MatrixFS
     def clear!
       super
 
-      @data = nil
+      @data.replace ''
     end
 
-    def reload!
+    def reload!(inp = nil)
       super do |data|
-        @data = data.data
+        @data.replace data.data
       end
     end
 

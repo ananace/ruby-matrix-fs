@@ -240,13 +240,18 @@ module MatrixFS
         @state.delete event.state_key
       else
         cur = @state[event.state_key]
-        if !cur.nil? && cur.timestamp >= Time.at(event.origin_server_ts / 1000.0)
-          logger.debug "Received older data for #{event.state_key}, ignoring"
-          return
-        end
+        if cur.nil?
+          logger.info "Received info for new entry #{event.state_key}"
+          @state[event.state_key] = MatrixFS::Entry.new_from_event(self, event.event)
+        else
+          if cur.timestamp >= Time.at(event.origin_server_ts / 1000.0)
+            logger.debug "Received older data for #{event.state_key}, ignoring"
+            return
+          end
 
-        logger.info "Received updated data for #{event.state_key}"
-        @state[event.state_key] = MatrixFS::Entry.new_from_event(self, event.event)
+          logger.info "Received update for #{event.state_key}"
+          cur.reload! event[:content]
+        end
       end
     end
 
