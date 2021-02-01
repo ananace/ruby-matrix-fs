@@ -88,11 +88,11 @@ module MatrixFS
     def global_xattr(key)
       case key
       when 'matrixfs.eventid'
-        @event&.event_id
+        @event&.fetch(:event_id, nil)
       when 'matrixfs.sender'
-        @event&.sender
+        @event&.fetch(:sender, nil)
       when 'matrixfs.fragmented'
-        is_a? FileFragmentEntry
+        (is_a?(FileFragmentEntry) ? 1 : 0).to_s
       end
     end
 
