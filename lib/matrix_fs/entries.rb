@@ -22,21 +22,25 @@ module MatrixFS
       @xattr_wrapper = XattrWrapper.new entry: self, xattr: @xattr
     end
 
+    def logger
+      Logging.logger[self]
+    end
+
     def save!(from_xattr = false)
-      Logging.logger[self].debug "Saving changes to entry #{path}"
+      logger.debug "Saving changes to entry #{path}"
       @timestamp = Time.now
       @xattr_wrapper.stop_save_timer unless from_xattr
       fs.room.client.api.send_state_event fs.room.id, MatrixFS::STATE_TYPE, to_h, state_key: path
     end
 
     def delete!
-      Logging.logger[self].debug "Deleting entry #{path}"
+      logger.debug "Deleting entry #{path}"
       @xattr_wrapper.stop_save_timer
       fs.room.client.api.send_state_event fs.room.id, MatrixFS::STATE_TYPE, {}, state_key: path
     end
 
     def reload!(data = nil)
-      Logging.logger[self].debug "Reloading entry #{path}"
+      logger.debug "Reloading entry #{path}"
 
       data ||= fs.room.client.api.get_room_state fs.room.id, MatrixFS::STATE_TYPE, key: path
 
