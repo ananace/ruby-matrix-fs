@@ -8,7 +8,7 @@ module MatrixFS
     XATTR_SAVE_DELAY = 1 # Save changes one second after the last xattr change
 
     attr_accessor :modes, :timestamp, :atime
-    attr_reader :fs, :path, :xattr, :xattr_wrapper
+    attr_reader :event, :fs, :path, :xattr
 
     def initialize(fs, event:, path:, timestamp:, atime: nil, xattr: nil)
       @fs = fs

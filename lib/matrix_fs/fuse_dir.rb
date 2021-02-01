@@ -251,6 +251,8 @@ module MatrixFS
           end
 
           logger.info "Received update for #{event.state_key}"
+          cur.event[:sender] = event[:sender]
+          cur.event[:event_id] = event[:event_id]
           cur.reload! event[:content]
         end
       end
