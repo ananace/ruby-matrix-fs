@@ -230,9 +230,6 @@ module MatrixFS
         @fragments = nil
         @size = @data.bytesize
       end
-    ensure
-      @clean = false
-      @timestamp = Time.now
     end
 
     def save!(*arg)
@@ -249,6 +246,9 @@ module MatrixFS
       end
 
       each_fragment(&:save!)
+    ensure
+      @clean = false
+      @timestamp = Time.now
     end
 
     def delete!

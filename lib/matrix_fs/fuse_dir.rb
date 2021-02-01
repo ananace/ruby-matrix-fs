@@ -207,10 +207,9 @@ module MatrixFS
 
     def get_initial_data
       logger.debug 'Getting initial sync data'
+
       tmpfilter = room.client.sync_filter.dup
       tmpfilter[:room][:state][:types] = tmpfilter.dig(:room, :timeline, :types)
-      tmpfilter[:room][:timeline][:types] = []
-
       room.client.sync filter: tmpfilter
 
       if @can_write.nil?
